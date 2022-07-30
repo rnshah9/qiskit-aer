@@ -2,4 +2,4 @@ project: qiskit-aer
 target: qasm-simulator
 
 cmds:
-  - cmd: /repo/build/Release/qasm_simulator @@
+  - cmd: /install/bin/qasm_simulator @@
