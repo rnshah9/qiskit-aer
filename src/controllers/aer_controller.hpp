@@ -828,7 +828,8 @@ size_t Controller::get_gpu_memory_mb() {
 Transpile::CacheBlocking
 Controller::transpile_cache_blocking(Controller::Method method, const Circuit &circ,
                                      const Noise::NoiseModel &noise,
-                                     const json_t &config) const {
+                                     const json_t &config) const 
+{
   Transpile::CacheBlocking cache_block_pass;
 
   const bool is_matrix = (method == Method::density_matrix
@@ -837,7 +838,9 @@ Controller::transpile_cache_blocking(Controller::Method method, const Circuit &c
                               ? sizeof(std::complex<float>)
                               : sizeof(std::complex<double>);
 
+  cache_block_pass.set_num_processes(num_process_per_experiment_);
   cache_block_pass.set_config(config);
+
   if (!cache_block_pass.enabled()) {
     // if blocking is not set by config, automatically set if required
     if (multiple_chunk_required(circ, noise, method)) {
@@ -972,6 +975,19 @@ Result Controller::execute(std::vector<Circuit> &circuits,
       result.metadata.add(parallel_nested_, "omp_nested");
     } else {
       parallel_nested_ = false;
+    }
+#endif
+
+#ifdef AER_MPI
+    //average random seed to set the same seed to each process (when seed_simulator is not set)
+    if(num_processes_ > 1){
+      reg_t seeds(circuits.size());
+      reg_t avg_seeds(circuits.size());
+      for(int_t i=0;i<circuits.size();i++)
+        seeds[i] = circuits[i].seed;
+      MPI_Allreduce(seeds.data(), avg_seeds.data(), circuits.size(), MPI_UINT64_T, MPI_SUM, MPI_COMM_WORLD);
+      for(int_t i=0;i<circuits.size();i++)
+        circuits[i].seed = avg_seeds[i]/num_processes_;
     }
 #endif
 
@@ -1496,6 +1512,13 @@ void Controller::run_circuit_without_sampled_noise(Circuit &circ,
       for (auto &res : par_results) {
         result.combine(std::move(res));
       }
+
+      if (sim_device_name_ == "GPU"){
+        if(parallel_shots_ >= num_gpus_)
+          result.metadata.add(num_gpus_, "gpu_parallel_shots_");
+        else
+          result.metadata.add(parallel_shots_, "gpu_parallel_shots_");
+      }
     }
     // Add measure sampling metadata
     result.metadata.add(true, "measure_sampling");
@@ -1556,6 +1579,12 @@ void Controller::run_circuit_without_sampled_noise(Circuit &circ,
 
       for (auto &res : par_results) {
         result.combine(std::move(res));
+      }
+      if (sim_device_name_ == "GPU"){
+        if(par_shots >= num_gpus_)
+          result.metadata.add(num_gpus_, "gpu_parallel_shots_");
+        else
+          result.metadata.add(par_shots, "gpu_parallel_shots_");
       }
     }
   }
@@ -1621,6 +1650,13 @@ void Controller::run_circuit_with_sampled_noise(
 
   for (auto &res : par_results) {
     result.combine(std::move(res));
+  }
+
+  if (sim_device_name_ == "GPU"){
+    if(parallel_shots_ >= num_gpus_)
+      result.metadata.add(num_gpus_, "gpu_parallel_shots_");
+    else
+      result.metadata.add(parallel_shots_, "gpu_parallel_shots_");
   }
 }
 
